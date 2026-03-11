@@ -30,6 +30,7 @@ install_requires = [
   "uuid==1.30",
   "uvloop==0.21.0",
   "tinygrad @ git+https://github.com/tinygrad/tinygrad.git@ec120ce6b9ce8e4ff4b5692566a683ef240e8bc8",
+  "llvmlite",
 ]
 
 extras_require = {
