@@ -316,31 +316,28 @@ def convert_from_huggingface(weights: Dict[str, Tensor], model: Transformer, n_h
   return sd
 
 
+def _bf16_to(v: Tensor, target_dtype) -> Tensor:
+  if hasattr(v, 'llvm_bf16_cast'):
+    return v.llvm_bf16_cast(target_dtype)
+  return v.to("CLANG").cast(target_dtype)
+
 def fix_bf16(weights: Dict[Any, Tensor]):
-  # USE_FP32=1 forces everything to f32 for devices without fp16 support (e.g., older OpenCL like FirePro D500)
-  # We do the conversion on CPU using llvm_bf16_cast to avoid GPU kernels that use bf16/fp16
   if getenv("USE_FP32", 0):
     result = {}
     for k, v in weights.items():
       if v.dtype == dtypes.bfloat16:
-        # Use llvm_bf16_cast for bf16, then transfer to target device
-        cpu_tensor = v.llvm_bf16_cast(dtypes.float32)
-        result[k] = cpu_tensor.to(Device.DEFAULT)
+        result[k] = _bf16_to(v, dtypes.float32).to(Device.DEFAULT)
       elif v.dtype == dtypes.float16:
-        # For fp16, cast on CPU then transfer
         cpu_tensor = v.to("CLANG").cast(dtypes.float32)
         result[k] = cpu_tensor.to(Device.DEFAULT)
       else:
         result[k] = v
     return result
   if Device.DEFAULT == "CLANG":
-    # TODO: without casting to float16, 70B llama OOM on tinybox.
     return {
-      k: (v.llvm_bf16_cast(dtypes.float32).to(v.device) if v.dtype == dtypes.bfloat16 else v)
+      k: (_bf16_to(v, dtypes.float32).to(v.device) if v.dtype == dtypes.bfloat16 else v)
       for k, v in weights.items()
     }
   if getenv("SUPPORT_BF16", 1):
-    # TODO: without casting to float16, 70B llama OOM on tinybox.
     return {k: v.cast(dtypes.float16) if v.dtype == dtypes.bfloat16 else v for k, v in weights.items()}
-  # TODO: check if device supports bf16
-  return {k: v.llvm_bf16_cast(dtypes.half).to(v.device) if v.dtype == dtypes.bfloat16 else v for k, v in weights.items()}
+  return {k: _bf16_to(v, dtypes.half).to(v.device) if v.dtype == dtypes.bfloat16 else v for k, v in weights.items()}
